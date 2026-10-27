@@ -157,6 +157,13 @@ app.post('/api/2fa/disable', auth, authLimit, (req, res) => {
 });
 
 // ---- Scores ----
+function cleanGpu(raw) {
+  let s = String(raw || '').trim();
+  const m = s.match(/^ANGLE \((.*)\)$/);
+  if (m) { const p = m[1].split(/,\s+/); s = p.length >= 3 ? p.slice(1, -1).join(', ') : (p[1] || p[0]); }
+  return s.replace(/\s*\(0x[0-9a-f]+\)/gi, '').replace(/\s+Direct3D.*$/i, '').replace(/^ANGLE Metal Renderer:\s*/i, '')
+    .replace(/\/(PCIe|SSE2).*$/i, '').replace(/^Mesa\s+/i, '').replace(/\((R|TM)\)/gi, '').replace(/\s+/g, ' ').trim();
+}
 const num = v => { v = Number(v); if (!Number.isFinite(v) || v <= 0 || v > 1e7) throw new Error('Ungültiger Messwert'); return v; };
 const str = v => { v = String(v || '').trim().replace(/\s+/g, ' '); if (v.length < 2 || v.length > 80) throw new Error('Modellname ungültig (2–80 Zeichen)'); return v; };
 const verified = (req, res, next) => req.user.email_verified ? next() : res.status(403).json({ error: 'Bitte zuerst die E-Mail-Adresse bestätigen' });
@@ -165,7 +172,7 @@ app.post('/api/scores', auth, verified, scoreLimit, (req, res) => {
     const b = req.body || {};
     const t = Math.min(Math.max(parseInt(b.threads) || 1, 1), 512);
     db.prepare('INSERT INTO scores(user_id,cpu_model,gpu_model,cpu_single,cpu_multi,gpu_score,threads,created_at) VALUES(?,?,?,?,?,?,?,?)')
-      .run(req.user.id, str(b.cpu_model), str(b.gpu_model), num(b.cpu_single), num(b.cpu_multi), num(b.gpu_score), t, Date.now());
+      .run(req.user.id, str(b.cpu_model), str(cleanGpu(b.gpu_model)), num(b.cpu_single), num(b.cpu_multi), num(b.gpu_score), t, Date.now());
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

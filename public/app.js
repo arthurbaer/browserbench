@@ -18,8 +18,8 @@ let me = null, last = null;
 // ---------- Benchmarks ----------
 const runWorker = ms => new Promise((res, rej) => { const w = new Worker('/worker.js'); w.onmessage = e => { w.terminate(); res(e.data.ops / ms); }; w.onerror = rej; w.postMessage({ ms }); });
 async function cpuBench(say) {
-  say('CPU Single-Core …'); const single = await runWorker(3000);
-  const n = navigator.hardwareConcurrency || 4; say(`CPU Multi-Core (${n} Threads) …`);
+  say('CPU Single-Core …', 3); const single = await runWorker(3000);
+  const n = navigator.hardwareConcurrency || 4; say(`CPU Multi-Core (${n} Threads) …`, 3);
   const multi = (await Promise.all(Array.from({ length: n }, () => runWorker(3000)))).reduce((a, b) => a + b, 0);
   return { single, multi, threads: n };
 }
@@ -40,13 +40,44 @@ for(int i=0;i<${IT};i++){z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)*.9+c;a+=sin(z.x*z.y)
   gl.linkProgram(p); gl.useProgram(p); gl.viewport(0, 0, N, N);
   const tl = gl.getUniformLocation(p, 't'), px = new Uint8Array(4);
   const draw = k => { for (let i = 0; i < k; i++) { gl.uniform1f(tl, performance.now() / 1000); gl.drawArrays(gl.TRIANGLES, 0, 3); } gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
-  draw(2); say('GPU …');
+  draw(2); say('GPU …', 4);
   let draws = 0; const t0 = performance.now();
   while (performance.now() - t0 < 4000) { draw(3); draws += 3; await new Promise(r => setTimeout(r)); }
   return { name, score: draws * N * N * IT / ((performance.now() - t0) / 1000) / 1e8 };
 }
 
 // ---------- Views ----------
+function cleanGpu(raw) {
+  let s = String(raw || '').trim();
+  const m = s.match(/^ANGLE \((.*)\)$/);
+  if (m) { const p = m[1].split(/,\s+/); s = p.length >= 3 ? p.slice(1, -1).join(', ') : (p[1] || p[0]); }
+  return s.replace(/\s*\(0x[0-9a-f]+\)/gi, '').replace(/\s+Direct3D.*$/i, '').replace(/^ANGLE Metal Renderer:\s*/i, '')
+    .replace(/\/(PCIe|SSE2).*$/i, '').replace(/^Mesa\s+/i, '').replace(/\((R|TM)\)/gi, '').replace(/\s+/g, ' ').trim();
+}
+
+const avgAll = (rows, key) => { const n = rows.reduce((s, r) => s + r.n, 0); return n ? rows.reduce((s, r) => s + r[key] * r.n, 0) / n : null; };
+const findModel = (rows, name) => rows.find(r => r.name.toLowerCase() === String(name).trim().toLowerCase());
+function chart(title, you, refs) {
+  const vals = [['Dein Lauf', you, ''], ...refs.filter(r => r[1] != null).map(r => [r[0], r[1], 'mut'])];
+  const max = Math.max(...vals.map(v => v[1]), 1);
+  const avg = refs.find(r => r[0] === 'Ø alle User')?.[1];
+  const d = avg ? ` (${you >= avg ? '+' : '−'}${Math.abs((you / avg - 1) * 100).toFixed(0)} % ggü. Ø)` : '';
+  return h('div', {}, h('h3', {}, title + d),
+    vals.map(([l, v, cls]) => h('div', { class: 'row' }, h('span', {}, l), h('div', { class: 'bar' }, h('i', { class: cls, style: `width:${v / max * 100}%` })), h('b', {}, fmt(v)))));
+}
+async function visualize(box, cpuName, gpuName, c, gScore) {
+  box.replaceChildren(h('p', {}, 'Vergleichsdaten werden geladen …'));
+  try {
+    const [cs, gs, b1, b2, b3] = await Promise.all([api('/stats/cpus'), api('/stats/gpus'), api('/leaderboard?type=cpu_single'), api('/leaderboard?type=cpu_multi'), api('/leaderboard?type=gpu')]);
+    const cm = findModel(cs, cpuName), gm = findModel(gs, gpuName);
+    box.replaceChildren(...[
+      h('h2', {}, 'Dein Ergebnis im Vergleich'),
+      chart('CPU Single-Core', c.single, [['Ø CPU-Modell', cm?.single], ['Ø alle User', avgAll(cs, 'single')], ['Bestwert', b1[0]?.score]]),
+      chart('CPU Multi-Core', c.multi, [['Ø CPU-Modell', cm?.multi], ['Ø alle User', avgAll(cs, 'multi')], ['Bestwert', b2[0]?.score]]),
+      chart('GPU', gScore, [['Ø GPU-Modell', gm?.score], ['Ø alle User', avgAll(gs, 'score')], ['Bestwert', b3[0]?.score]]),
+      !b1.length && h('p', {}, 'Noch keine Vergleichsdaten vorhanden – dein Ergebnis wäre der erste Eintrag.')].filter(Boolean));
+  } catch { box.replaceChildren(); }
+}
 function benchView() {
   const cpu = h('input', { list: 'cpus', placeholder: 'CPU-Modell, z. B. Intel Core i7-8700K', maxlength: 80, size: 34 });
   const gpu = h('input', { placeholder: 'GPU (wird erkannt)', maxlength: 80, size: 34 });
@@ -57,15 +88,18 @@ function benchView() {
     if (cpu.value.trim().length < 2) return out.replaceChildren(err(new Error('Bitte CPU-Modell angeben – der Browser kann es nicht auslesen.')));
     btn.disabled = true;
     try {
-      const say = t => out.replaceChildren(h('p', {}, t));
+      const say = (t, s) => out.replaceChildren(...[h('p', {}, t), s && h('div', { class: 'bar' }, h('i', { style: `width:0;animation:fill ${s}s linear forwards` }))].filter(Boolean));
       const c = await cpuBench(say), g = await gpuBench(say);
-      if (!gpu.value) gpu.value = g.name;
+      if (!gpu.value) gpu.value = cleanGpu(g.name);
       last = { cpu_single: c.single, cpu_multi: c.multi, gpu_score: g.score, threads: c.threads };
       const save = h('button', { onclick: async () => { try { await api('/scores', 'POST', { ...last, cpu_model: cpu.value, gpu_model: gpu.value }); save.replaceWith(h('span', {}, '✓ Gespeichert')); } catch (e) { alert(e.message); } } }, 'Ergebnis speichern');
-      out.replaceChildren(
+      const charts = h('div');
+      out.replaceChildren(...[
         table(['CPU Single', 'CPU Multi', 'GPU'], [[fmt(c.single), fmt(c.multi), fmt(g.score)]]),
         /swiftshader|llvmpipe|software/i.test(g.name) && h('p', { class: 'warn' }, 'Hinweis: Software-Rendering erkannt – GPU-Wert nicht aussagekräftig.'),
-        me ? save : h('p', {}, 'Zum Speichern bitte unter „Profil“ anmelden.'));
+        charts,
+        me ? save : h('p', {}, 'Zum Speichern bitte unter „Profil“ anmelden.')].filter(Boolean));
+      visualize(charts, cpu.value, gpu.value, c, g.score);
     } catch (e) { out.replaceChildren(err(e)); }
     btn.disabled = false;
   };
