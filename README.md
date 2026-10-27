@@ -83,9 +83,9 @@ Wichtig:
 
 | Wert | Messung | Einheit |
 |---|---|---|
-| CPU Single | 3 s Last in einem Worker (Integer-Hash, Float-Mathematik, Sortierung) | Iterationen pro ms |
+| CPU Single | 3s Last in einem Worker (Integer-Hash, Float-Mathematik, Sortierung) | Iterationen pro ms |
 | CPU Multi | gleiche Last parallel auf `navigator.hardwareConcurrency` Workern | Summe der Iterationen pro ms |
-| GPU | 4 s Fullscreen-Shader (1024×1024, 300 Iterationen je Pixel), Synchronisation per `readPixels` | Shader-Iterationen pro s ÷ 10⁸ |
+| GPU | 4s Fullscreen-Shader (1024×1024, 300 Iterationen je Pixel), Synchronisation per `readPixels` | Shader-Iterationen pro s ÷ 10⁸ |
 
 Die Werte sind nur untereinander vergleichbar, nicht mit anderen Benchmarks. Für reproduzierbare Ergebnisse den Tab im Vordergrund lassen und andere Last vermeiden.
 
