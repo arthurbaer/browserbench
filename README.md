@@ -11,6 +11,7 @@ CPU- und GPU-Benchmark, der komplett im Browser läuft – mit Nutzerkonten, Lea
 **Benchmark**
 - CPU Single-Core und Multi-Core (Web Worker, alle verfügbaren Threads)
 - GPU über einen rechenintensiven WebGL2-Fragment-Shader; der GPU-Name wird automatisch erkannt
+- Live-Visualisierung des Tests: Auslastung je Thread, Durchsatz-Kurve über alle Phasen und die Shader-Ausgabe der GPU in Echtzeit
 - Hinweis bei Software-Rendering (SwiftShader, llvmpipe), da der GPU-Wert dann nicht aussagekräftig ist
 
 **Auswertung**

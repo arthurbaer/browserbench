@@ -16,17 +16,19 @@ const table = (head, rows) => h('table', {}, h('thead', {}, h('tr', {}, head.map
 let me = null, last = null;
 
 // ---------- Benchmarks ----------
-const runWorker = ms => new Promise((res, rej) => { const w = new Worker('/worker.js'); w.onmessage = e => { w.terminate(); res(e.data.ops / ms); }; w.onerror = rej; w.postMessage({ ms }); });
-async function cpuBench(say) {
-  say('CPU Single-Core …', 3); const single = await runWorker(3000);
-  const n = navigator.hardwareConcurrency || 4; say(`CPU Multi-Core (${n} Threads) …`, 3);
-  const multi = (await Promise.all(Array.from({ length: n }, () => runWorker(3000)))).reduce((a, b) => a + b, 0);
+const runWorker = (ms, onRate) => new Promise((res, rej) => { const w = new Worker('/worker.js'); w.onmessage = e => { if ('r' in e.data) return onRate?.(e.data.r); w.terminate(); res(e.data.ops / ms); }; w.onerror = rej; w.postMessage({ ms }); });
+async function cpuBench(say, live) {
+  say('CPU Single-Core …', 3); live.phase(0, 1);
+  const single = await runWorker(3000, r => live.rate(0, r));
+  const n = navigator.hardwareConcurrency || 4; say(`CPU Multi-Core (${n} Threads) …`, 3); live.phase(1, n);
+  const multi = (await Promise.all(Array.from({ length: n }, (_, i) => runWorker(3000, r => live.rate(i, r))))).reduce((s, v) => s + v, 0);
   return { single, multi, threads: n };
 }
-async function gpuBench(say) {
+async function gpuBench(say, live) {
   const N = 1024, IT = 300, c = document.createElement('canvas'); c.width = c.height = N;
   const gl = c.getContext('webgl2', { antialias: false, powerPreference: 'high-performance' });
   if (!gl) throw new Error('WebGL2 nicht verfügbar');
+  live.canvas(c);
   const x = gl.getExtension('WEBGL_debug_renderer_info');
   const name = (x ? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || 'Unbekannt';
   const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o)); return o; };
@@ -41,8 +43,13 @@ for(int i=0;i<${IT};i++){z=vec2(z.x*z.x-z.y*z.y,2.*z.x*z.y)*.9+c;a+=sin(z.x*z.y)
   const tl = gl.getUniformLocation(p, 't'), px = new Uint8Array(4);
   const draw = k => { for (let i = 0; i < k; i++) { gl.uniform1f(tl, performance.now() / 1000); gl.drawArrays(gl.TRIANGLES, 0, 3); } gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); };
   draw(2); say('GPU …', 4);
-  let draws = 0; const t0 = performance.now();
-  while (performance.now() - t0 < 4000) { draw(3); draws += 3; await new Promise(r => setTimeout(r)); }
+  live.phase(2, 0);
+  let draws = 0, ld = 0; const t0 = performance.now(); let lt = t0;
+  while (performance.now() - t0 < 4000) {
+    draw(3); draws += 3; await new Promise(r => setTimeout(r));
+    const now = performance.now();
+    if (now - lt >= 200) { live.gpu((draws - ld) * N * N * IT / ((now - lt) / 1000) / 1e8); lt = now; ld = draws; }
+  }
   return { name, score: draws * N * N * IT / ((performance.now() - t0) / 1000) / 1e8 };
 }
 
@@ -78,18 +85,63 @@ async function visualize(box, cpuName, gpuName, c, gScore) {
       !b1.length && h('p', {}, 'Noch keine Vergleichsdaten vorhanden – dein Ergebnis wäre der erste Eintrag.')].filter(Boolean));
   } catch { box.replaceChildren(); }
 }
+function makeLive() {
+  const W = 720, H = 170, COL = ['#2563eb', '#16a34a', '#d97706'], NAME = ['CPU Single', 'CPU Multi', 'GPU'];
+  const cv = h('canvas', { width: W, height: H, class: 'livechart' }), ctx = cv.getContext('2d');
+  const tiles = h('div', { class: 'tiles' }), gpuBox = h('div', { class: 'gpubox' }), label = h('h3', {}, 'Live-Test');
+  const el = h('div', { class: 'live' }, label, tiles, gpuBox, cv);
+  const T0 = performance.now(), pts = [[], [], []], css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  let ph = 0, rates = [], tileEls = [], peak = 1, raf = 0;
+  const draw = () => {
+    raf = 0; ctx.clearRect(0, 0, W, H);
+    const X = Math.max(11, (performance.now() - T0) / 1000);
+    ctx.strokeStyle = css('--line'); ctx.lineWidth = 1; ctx.strokeRect(.5, .5, W - 1, H - 1);
+    ctx.font = '13px system-ui'; let lx = 10;
+    pts.forEach((p, k) => {
+      if (!p.length) return;
+      const max = Math.max(...p.map(q => q[1])) * 1.15 || 1;
+      ctx.strokeStyle = COL[k]; ctx.lineWidth = 2; ctx.beginPath();
+      p.forEach(([t, v], i) => { const x = t / X * W, y = H - 8 - (v / max) * (H - 38); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+      ctx.stroke();
+      const txt = `${NAME[k]} ${fmt(p[p.length - 1][1])}`;
+      ctx.fillStyle = COL[k]; ctx.fillRect(lx, 10, 10, 10); ctx.fillStyle = css('--fg'); ctx.fillText(txt, lx + 14, 20);
+      lx += ctx.measureText(txt).width + 34;
+    });
+  };
+  const sched = () => { raf = raf || requestAnimationFrame(draw); };
+  const now = () => (performance.now() - T0) / 1000;
+  return {
+    el,
+    phase(k, n) {
+      ph = k; peak = 1; rates = Array(n).fill(0);
+      label.textContent = `Live-Test: ${NAME[k]}${n > 1 ? ` (${n} Threads)` : ''}`;
+      tiles.replaceChildren(...rates.map((_, i) => h('div', { class: 'tile', title: 'Thread ' + (i + 1) }, h('i'))));
+      tileEls = [...tiles.children];
+    },
+    rate(i, r) {
+      rates[i] = r; peak = Math.max(peak, ...rates);
+      tileEls.forEach((t, j) => { t.firstChild.style.height = `${rates[j] / peak * 100}%`; });
+      if (i === 0) { pts[ph].push([now(), rates.reduce((s, v) => s + v, 0)]); sched(); }
+    },
+    canvas(c) { c.className = 'gpucv'; gpuBox.replaceChildren(c); },
+    gpu(v) { pts[2].push([now(), v]); sched(); },
+    done() { label.textContent = 'Testverlauf (Durchsatz über die Zeit)'; tiles.replaceChildren(); sched(); },
+  };
+}
 function benchView() {
   const cpu = h('input', { list: 'cpus', placeholder: 'CPU-Modell, z. B. Intel Core i7-8700K', maxlength: 80, size: 34 });
   const gpu = h('input', { placeholder: 'GPU (wird erkannt)', maxlength: 80, size: 34 });
   const dl = h('datalist', { id: 'cpus' });
   api('/stats/cpus').then(r => r.forEach(x => dl.append(h('option', { value: x.name })))).catch(() => {});
-  const out = h('div'), btn = h('button', {}, 'Benchmark starten (~15 s)');
+  const out = h('div'), liveBox = h('div'), btn = h('button', {}, 'Benchmark starten (~15 s)');
   btn.onclick = async () => {
     if (cpu.value.trim().length < 2) return out.replaceChildren(err(new Error('Bitte CPU-Modell angeben – der Browser kann es nicht auslesen.')));
     btn.disabled = true;
     try {
       const say = (t, s) => out.replaceChildren(...[h('p', {}, t), s && h('div', { class: 'bar' }, h('i', { style: `width:0;animation:fill ${s}s linear forwards` }))].filter(Boolean));
-      const c = await cpuBench(say), g = await gpuBench(say);
+      const live = makeLive(); liveBox.replaceChildren(live.el);
+      const c = await cpuBench(say, live), g = await gpuBench(say, live);
+      live.done();
       if (!gpu.value) gpu.value = cleanGpu(g.name);
       last = { cpu_single: c.single, cpu_multi: c.multi, gpu_score: g.score, threads: c.threads };
       const save = h('button', { onclick: async () => { try { await api('/scores', 'POST', { ...last, cpu_model: cpu.value, gpu_model: gpu.value }); save.replaceWith(h('span', {}, '✓ Gespeichert')); } catch (e) { alert(e.message); } } }, 'Ergebnis speichern');
@@ -103,7 +155,7 @@ function benchView() {
     } catch (e) { out.replaceChildren(err(e)); }
     btn.disabled = false;
   };
-  return h('div', {}, h('h2', {}, 'Benchmark'), h('p', {}, 'Tab im Vordergrund lassen, andere Last vermeiden.'), cpu, dl, gpu, btn, out);
+  return h('div', {}, h('h2', {}, 'Benchmark'), h('p', {}, 'Tab im Vordergrund lassen, andere Last vermeiden.'), cpu, dl, gpu, btn, liveBox, out);
 }
 function boardView() {
   const sel = h('select', {}, [['cpu_multi', 'CPU Multi-Core'], ['cpu_single', 'CPU Single-Core'], ['gpu', 'GPU']].map(([v, l]) => h('option', { value: v }, l)));

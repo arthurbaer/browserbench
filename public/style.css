@@ -12,3 +12,9 @@ table{width:100%;border-collapse:collapse;margin:.5rem 0 1.5rem}th,td{text-align
 .row{display:grid;grid-template-columns:150px 1fr 80px;gap:.6rem;align-items:center;margin:.3rem 0}.row b{text-align:right;font-weight:600}
 .bar i.mut{background:var(--mut)}.bar{overflow:hidden}@keyframes fill{to{width:100%}}
 @media(max-width:480px){.row{grid-template-columns:105px 1fr 64px;font-size:.9rem}}
+.live{margin:1rem 0;padding:.8rem 1rem;border:1px solid var(--line);border-radius:8px}.live h3{margin:.2rem 0 .6rem}
+.tiles{display:flex;flex-wrap:wrap;gap:4px}.tiles:not(:empty){margin-bottom:.6rem}
+.tile{width:22px;height:56px;background:var(--line);border-radius:4px;position:relative;overflow:hidden}
+.tile i{position:absolute;left:0;right:0;bottom:0;height:0;background:var(--acc);transition:height .15s}
+.gpubox:not(:empty){margin-bottom:.6rem}.gpucv{width:240px;height:240px;max-width:100%;border-radius:6px;display:block;filter:brightness(2.2) saturate(1.6)}
+.livechart{width:100%;height:auto;display:block}
