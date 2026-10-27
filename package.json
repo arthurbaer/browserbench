@@ -1,0 +1,24 @@
+{
+  "name": "browserbench",
+  "version": "1.0.0",
+  "description": "CPU- und GPU-Benchmark im Browser mit Leaderboard, Nutzerkonten und 2FA",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "nodemailer": "^6.9.16",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4"
+  }
+}
