@@ -36,7 +36,7 @@ CPU- und GPU-Benchmark, der komplett im Browser läuft – mit Nutzerkonten, Lea
 Voraussetzung: Node.js ≥ 20.
 
 ```bash
-git clone https://github.com/<user>/browserbench.git
+git clone https://github.com/arthurbaer/browserbench.git
 cd browserbench
 cp .env.example .env        # APP_SECRET setzen: openssl rand -hex 32
 npm install
